@@ -62,7 +62,7 @@ CLASS zcl_nw_test_run IMPLEMENTATION.
         " Repair acquisition state created by the previous
         " version of reconciliation logic.
         UPDATE znw_acq_state
-          SET status        = 'FAILED',
+          SET status        = 'DONE',
               active_run_id = ''
           WHERE source_name = 'NORTHWIND_PRODUCTS'.
 
@@ -71,8 +71,8 @@ CLASS zcl_nw_test_run IMPLEMENTATION.
 
           COMMIT WORK AND WAIT.
         " For test ONLY
-        DELETE FROM znw_acq_state.
-        COMMIT WORK AND WAIT.
+        " DELETE FROM znw_acq_state.
+        " COMMIT WORK AND WAIT.
 
           out->write(
             'Acquisition state repaired.'

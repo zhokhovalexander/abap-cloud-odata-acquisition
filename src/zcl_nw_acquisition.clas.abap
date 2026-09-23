@@ -287,15 +287,41 @@ IF lv_acquired = abap_true.    "Capture is succesful
     ls_run_log-status      = 'RUNNING'.
     ls_run_log-started_at  = lv_started_at.
 
-    INSERT znw_acq_run_log FROM @ls_run_log.
-    COMMIT WORK AND WAIT.
- ELSE.
-     " acquisition was not granted
-  " do not create RUN_LOG
-  " do not commit a fake RUN
-  " raise appropriate exception / return
+    TRY.
 
-    RAISE EXCEPTION TYPE zcx_nw_run_active
+        INSERT znw_acq_run_log FROM @ls_run_log.
+        IF sy-subrc <> 0.
+
+            ROLLBACK WORK.
+
+            RAISE EXCEPTION TYPE zcx_nw_db_error
+                EXPORTING
+                iv_reason = 'Initial RUN_LOG record could not be created'.
+
+        ENDIF.
+
+        COMMIT WORK AND WAIT.
+    CATCH cx_sy_open_sql_db INTO DATA(lx_start_db_error).
+        ROLLBACK WORK.
+
+        RAISE EXCEPTION TYPE zcx_nw_db_error
+            EXPORTING
+            iv_reason = lx_start_db_error->get_text( ).
+
+    ENDTRY.
+ ELSE.
+
+  " Acquisition was not admitted.
+  " Re-read the persisted state because ls_state may contain
+  " values prepared for the failed INSERT attempt.
+  CLEAR ls_state.
+
+  SELECT SINGLE *
+    FROM znw_acq_state
+    WHERE source_name = 'NORTHWIND_PRODUCTS'
+    INTO @ls_state.
+
+  RAISE EXCEPTION TYPE zcx_nw_run_active
     EXPORTING
       iv_active_run_id = ls_state-active_run_id
       iv_source_name   = 'NORTHWIND_PRODUCTS'.
@@ -536,7 +562,7 @@ i_break = 0.
  DATA(lv_threshold) =
   utclong_add(
     val     = utclong_current( )
-    minutes = -1
+    minutes = -1                       " For test -15, for work -1
   ).
 
  DATA lt_running_runs TYPE TABLE OF znw_acq_run_log.
