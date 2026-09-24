@@ -67,26 +67,26 @@ CLASS zcl_nw_test_run IMPLEMENTATION.
           WHERE source_name = 'NORTHWIND_PRODUCTS'.
 
 
-        IF sy-dbcnt = 1.
+  "      IF sy-dbcnt = 1.
 
-          COMMIT WORK AND WAIT.
+"          COMMIT WORK AND WAIT.
         " For test ONLY
-        " DELETE FROM znw_acq_state.
-        " COMMIT WORK AND WAIT.
+     "    DELETE FROM znw_acq_state.
+     "    COMMIT WORK AND WAIT.
 
           out->write(
             'Acquisition state repaired.'
           ).
 
-        ELSE.
+ "       ELSE.
 
-          ROLLBACK WORK.
+  "        ROLLBACK WORK.
 
-          out->write(
-            |State repair failed. Rows affected: { sy-dbcnt }|
-          ).
+ "         out->write(
+ "           |State repair failed. Rows affected: { sy-dbcnt }|
+ "         ).
 
-        ENDIF.
+"        ENDIF.
 
       CATCH cx_sy_open_sql_db INTO DATA(lx_db_error).
 

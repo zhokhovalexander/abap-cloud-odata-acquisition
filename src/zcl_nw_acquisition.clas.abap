@@ -47,7 +47,8 @@ CLASS zcl_nw_acquisition DEFINITION
     RAISING
             zcx_nw_http_error
             zcx_nw_db_error
-            zcx_nw_run_active.
+            zcx_nw_run_active
+            zcx_nw_run_not_allowed.
 
 
   METHODS reconcile_runs
@@ -321,10 +322,40 @@ IF lv_acquired = abap_true.    "Capture is succesful
     WHERE source_name = 'NORTHWIND_PRODUCTS'
     INTO @ls_state.
 
-  RAISE EXCEPTION TYPE zcx_nw_run_active
-    EXPORTING
-      iv_active_run_id = ls_state-active_run_id
-      iv_source_name   = 'NORTHWIND_PRODUCTS'.
+  IF sy-subrc <> 0.
+
+    RAISE EXCEPTION TYPE zcx_nw_db_error
+      EXPORTING
+        iv_reason =
+          'Acquisition admission failed, but source state was not found'.
+
+  ENDIF.
+
+  IF ls_state-status = 'RUNNING'.
+
+    RAISE EXCEPTION TYPE zcx_nw_run_active
+      EXPORTING
+        iv_active_run_id = ls_state-active_run_id
+        iv_source_name   = ls_state-source_name.
+
+  ELSE.
+
+    DATA(lv_requested_mode) =
+      COND zcx_nw_run_not_allowed=>ty_requested_mode(
+        WHEN iv_retry_count = 0
+          THEN 'NORMAL'
+        ELSE
+          'RETRY'
+      ).
+
+    RAISE EXCEPTION TYPE zcx_nw_run_not_allowed
+      EXPORTING
+        iv_source_name    = ls_state-source_name
+        iv_state_status   = ls_state-status
+        iv_requested_mode = lv_requested_mode.
+
+  ENDIF.
+
  ENDIF.
 
 

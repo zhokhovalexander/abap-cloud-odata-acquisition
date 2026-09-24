@@ -70,13 +70,23 @@ CLASS zcl_nw_run IMPLEMENTATION.
         ).
 
 
+
        CATCH zcx_nw_run_active INTO DATA(lx_run_active).
             "Expected run_active
          out->write(
             |Acquisition is already running for { lx_run_active->source_name }.|
             && | Active run ID: { lx_run_active->active_run_id  }|
-
           ).
+
+
+
+        CATCH zcx_nw_run_not_allowed INTO DATA(lx_not_allowed).
+
+        out->write(
+            |Run not allowed for { lx_not_allowed->source_name }. |
+            && |Current state: { lx_not_allowed->state_status }. |
+            && |Requested mode: { lx_not_allowed->requested_mode }.|
+        ).
 
        CATCH zcx_nw_http_error INTO DATA(lx_http_error).
             " Expected HTTP error raised by the HTTP client
