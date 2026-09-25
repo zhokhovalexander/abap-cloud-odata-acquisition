@@ -62,7 +62,7 @@ CLASS zcl_nw_test_run IMPLEMENTATION.
         " Repair acquisition state created by the previous
         " version of reconciliation logic.
         UPDATE znw_acq_state
-          SET status        = 'DONE',
+          SET status        = 'RETRY_LIMIT',
               active_run_id = ''
           WHERE source_name = 'NORTHWIND_PRODUCTS'.
 

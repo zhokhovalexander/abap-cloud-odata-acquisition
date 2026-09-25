@@ -21,7 +21,7 @@ CLASS zcl_nw_acquisition DEFINITION
 
 
 
-  " Execute full acquisition of Northwind Product
+  " Full acquisition of the Northwind Products entity set.
   " Full snapshot replacement.
   " Reads all Products and completely replaces the persisted snapshot.
   " Simple reference implementation using DELETE + INSERT.
@@ -60,10 +60,26 @@ CLASS zcl_nw_acquisition DEFINITION
 
 PRIVATE SECTION.
 
+    CONSTANTS:
+        c_source_products    TYPE znw_acq_state-source_name VALUE 'NORTHWIND_PRODUCTS',
+        c_load_compare       TYPE znw_acq_state-load_type   VALUE 'COMPARE',
+        c_load_replace       TYPE znw_acq_state-load_type   VALUE 'REPLACE',
+        c_status_running     TYPE znw_acq_state-status      VALUE 'RUNNING',
+        c_status_done        TYPE znw_acq_state-status      VALUE 'DONE',
+        c_status_failed      TYPE znw_acq_state-status      VALUE 'FAILED',
+        c_status_stale       TYPE znw_acq_state-status      VALUE 'STALE',
+        c_status_retry_limit TYPE znw_acq_state-status      VALUE 'RETRY_LIMIT',
+        c_status_unknown     TYPE znw_acq_run_log-status    VALUE 'UNKNOWN'.
+
     CONSTANTS
 
  " Maximum number of automatic retries for a stale acquisition run
         c_max_retry_count TYPE i VALUE 3.
+
+
+   CONSTANTS
+
+       c_stale_timeout_minutes TYPE i VALUE 1.
 
 
 
@@ -86,18 +102,16 @@ CLASS ZCL_NW_ACQUISITION IMPLEMENTATION.
 
   "Snapshot is empty: acquisition layer reflects the source as received;
   " preservation and accumulation belong to downstream warehouse layers.
-  "  IF lt_products IS INITIAL.
-  "    RETURN.
-  "  ENDIF.
+
 
     DATA lt_db_products TYPE STANDARD TABLE OF znw_acq_product
                         WITH EMPTY KEY.
 
-    " Persistence logic will be added here
+
     LOOP AT lt_products INTO DATA(ls_product).
 
     APPEND VALUE #(
-        client       = sy-mandt             " This field MUST NOT by empty
+        client       = sy-mandt             " CLIENT must be populated explicitly
         product_id   = ls_product-productid
         product_name = ls_product-productname
         unit_price   = ls_product-unitprice
@@ -116,9 +130,9 @@ CLASS ZCL_NW_ACQUISITION IMPLEMENTATION.
     DATA ls_state TYPE znw_acq_state.
 
     ls_state-client          = sy-mandt.
-    ls_state-source_name     = 'NORTHWIND_PRODUCTS'.
-    ls_state-load_type       = 'REPLACE'.
-    ls_state-status          = 'DONE'.
+    ls_state-source_name     = c_source_products.
+    ls_state-load_type       = c_load_replace.
+    ls_state-status          = c_status_done.
     ls_state-last_success_at = utclong_current( ).
     ls_state-row_count       = lines( lt_products ).
 
@@ -165,7 +179,7 @@ CLASS ZCL_NW_ACQUISITION IMPLEMENTATION.
   DATA lv_deleted   TYPE i.
   DATA lv_unchanged TYPE i.
 
-  DATA i_break      TYPE i.
+  DATA i_debug_anchor      TYPE i.
 
   DATA lt_db_products TYPE TABLE of znw_acq_product WITH KEY client product_id.
 
@@ -205,12 +219,12 @@ IF iv_retry_count = 0.
 
   " Normal run is allowed only after DONE or FAILED
   UPDATE znw_acq_state
-    SET status        = 'RUNNING',
+    SET status        = @c_status_running,
         active_run_id = @lv_run_id,
-        load_type     = 'COMPARE'
-    WHERE source_name = 'NORTHWIND_PRODUCTS'
-      AND ( status = 'DONE'
-         OR status = 'FAILED' ).
+        load_type     = @c_load_compare
+    WHERE source_name = @c_source_products
+      AND ( status = @c_status_done
+         OR status = @c_status_failed ).
 
   IF sy-dbcnt = 1.
 
@@ -224,9 +238,9 @@ IF iv_retry_count = 0.
         CLEAR ls_state.
 
         ls_state-client        = sy-mandt.
-        ls_state-source_name   = 'NORTHWIND_PRODUCTS'.
-        ls_state-load_type     = 'COMPARE'.
-        ls_state-status        = 'RUNNING'.
+        ls_state-source_name   = c_source_products .
+        ls_state-load_type     = c_load_compare.
+        ls_state-status        = c_status_running.
         ls_state-active_run_id = lv_run_id.
 
         INSERT znw_acq_state FROM @ls_state.
@@ -234,11 +248,6 @@ IF iv_retry_count = 0.
     IF sy-subrc = 0.
 
        lv_acquired = abap_true.
-
-    ELSE.
-      " State already exists, but its current status
-      " does not allow a normal run.
-      " Handling will be added here.
 
     ENDIF.
 
@@ -249,43 +258,36 @@ ELSE.
 
   " Retry run is allowed only from STALE
   UPDATE znw_acq_state
-    SET status        = 'RUNNING',
+    SET status        = @c_status_running,
         active_run_id = @lv_run_id,
-        load_type     = 'COMPARE'
-    WHERE source_name = 'NORTHWIND_PRODUCTS'
-      AND status      = 'STALE'.
+        load_type     = @c_load_compare
+    WHERE source_name = @c_source_products
+      AND status      = @c_status_stale.
 
   IF sy-dbcnt = 1.
 
      lv_acquired = abap_true.
 
-  ELSE.
-
-    " STALE state was not acquired.
-    " Retry must not continue.
-    " Handling will be added here.
-
   ENDIF.
 
 ENDIF.
 
-IF lv_acquired = abap_true.    "Capture is succesful
+IF lv_acquired = abap_true.     " Source acquisition succeeded
     SELECT SINGLE *
         FROM znw_acq_state
-        WHERE source_name = 'NORTHWIND_PRODUCTS'
+        WHERE source_name = @c_source_products
         INTO @ls_state.
 
      IF sy-subrc <> 0.
         ROLLBACK WORK.
-    " Здесь позже можно поднять отдельное DB/state exception
             RETURN.
      ENDIF.
 
     ls_run_log-client      = sy-mandt.
     ls_run_log-run_id      = lv_run_id.
-    ls_run_log-source_name = 'NORTHWIND_PRODUCTS'.
-    ls_run_log-load_type   = 'COMPARE'.
-    ls_run_log-status      = 'RUNNING'.
+    ls_run_log-source_name = c_source_products .
+    ls_run_log-load_type   = c_load_compare.
+    ls_run_log-status      = c_status_running.
     ls_run_log-started_at  = lv_started_at.
 
     TRY.
@@ -319,7 +321,7 @@ IF lv_acquired = abap_true.    "Capture is succesful
 
   SELECT SINGLE *
     FROM znw_acq_state
-    WHERE source_name = 'NORTHWIND_PRODUCTS'
+    WHERE source_name = @c_source_products
     INTO @ls_state.
 
   IF sy-subrc <> 0.
@@ -331,7 +333,7 @@ IF lv_acquired = abap_true.    "Capture is succesful
 
   ENDIF.
 
-  IF ls_state-status = 'RUNNING'.
+  IF ls_state-status = c_status_running.
 
     RAISE EXCEPTION TYPE zcx_nw_run_active
       EXPORTING
@@ -358,10 +360,6 @@ IF lv_acquired = abap_true.    "Capture is succesful
 
  ENDIF.
 
-
-"ls_state-last_success_at = CONV #( ls_state-last_success_at ).
-
-
 " Read the complete current snapshot from the OData source
   DATA(lo_odata_client) =
     NEW zcl_nw_odata_client( ).
@@ -372,15 +370,15 @@ IF lv_acquired = abap_true.    "Capture is succesful
   DATA(lt_products) =
     lo_odata_client->get_products( ).
 
-  CATCH zcx_nw_http_error INTO DATA(lx_http_error). "Processing HTTP error into get_product
+  CATCH zcx_nw_http_error INTO DATA(lx_http_error). " Persist controlled failure state before propagating the HTTP error
 
     "Close operational state as FAILED
-    ls_state-status = 'FAILED'.
+    ls_state-status = c_status_failed.
     CLEAR ls_state-active_run_id.
     MODIFY znw_acq_state FROM @ls_state.
 
     "Close current run as FAILED
-    ls_run_log-status      = 'FAILED'.
+    ls_run_log-status      = c_status_failed.
     ls_run_log-finished_at = utclong_current( ).
     ls_run_log-error_text  =
       |HTTP { lx_http_error->status_code }: { lx_http_error->reason }|.
@@ -391,13 +389,6 @@ IF lv_acquired = abap_true.    "Capture is succesful
     RAISE EXCEPTION lx_http_error.
 
   ENDTRY.
-
-
-  "Snapshot is empty: acquisition layer reflects the source as received;
-  " preservation and accumulation belong to downstream warehouse layers.
- " IF lt_products IS INITIAL.
- "   RETURN.
- " ENDIF.
 
   lt_products_hashed =
   CORRESPONDING #( lt_products ).
@@ -474,19 +465,12 @@ LOOP AT lt_db_products INTO ls_db_product.
 
 ENDLOOP.
 
-" Apply detected changes and acquisition state
-" in one database transaction
-
-"TRY for business data
+" Apply business changes and acquisition state in one LUW
 TRY.
 
 IF lt_to_insert IS NOT INITIAL.
+
   INSERT znw_acq_product FROM TABLE @lt_to_insert.
-
-" TEST ONLY:
-" Second INSERT must cause a duplicate-key database error
-" INSERT znw_acq_product FROM TABLE @lt_to_insert.
-
 
 ENDIF.
 
@@ -500,12 +484,10 @@ ENDIF.
 
 " Update state of the successful acquisition
 
-"DATA ls_state TYPE znw_acq_state.
-
 ls_state-client          = sy-mandt.
-ls_state-source_name     = 'NORTHWIND_PRODUCTS'.
-ls_state-load_type       = 'COMPARE'.
-ls_state-status          = 'DONE'.
+ls_state-source_name     = c_source_products .
+ls_state-load_type       = c_load_compare.
+ls_state-status          = c_status_done.
 ls_state-last_success_at = utclong_current( ).
 ls_state-row_count       = lines( lt_products ).
 CLEAR ls_state-active_run_id.
@@ -516,14 +498,13 @@ MODIFY znw_acq_state FROM @ls_state.
 
 COMMIT WORK AND WAIT.
 
-"CATCH for business data
 CATCH cx_sy_open_sql_db INTO DATA(lx_db_error).
 
     " Cancel all database changes of the current LUW
     ROLLBACK WORK.
 
     "Update operational state after ROLLBACK
-    ls_state-status = 'FAILED'.
+    ls_state-status = c_status_failed.
     CLEAR ls_state-active_run_id.
 
 
@@ -531,7 +512,7 @@ CATCH cx_sy_open_sql_db INTO DATA(lx_db_error).
 
 
     "Update current RUN_LOG
-    ls_run_log-status = 'FAILED'.
+    ls_run_log-status = c_status_failed.
     ls_run_log-finished_at = utclong_current( ).
     ls_run_log-error_text = lx_db_error->get_text( ).
 
@@ -545,15 +526,11 @@ CATCH cx_sy_open_sql_db INTO DATA(lx_db_error).
         EXPORTING
             iv_reason = lx_db_error->get_text( ).
 
-
-"ENDTRY for business data
 ENDTRY.
 
-"TRY for RUN log
-" Update run log in a separate LUW
-
+" Finalize RUN_LOG in a separate LUW
     TRY.
-        ls_run_log-status       = 'DONE'.
+        ls_run_log-status       = c_status_done.
         ls_run_log-finished_at  = utclong_current( ).
         ls_run_log-row_count    = lines( lt_products ).
         ls_run_log-new_count    = lv_new.
@@ -562,49 +539,38 @@ ENDTRY.
 
         MODIFY znw_acq_run_log FROM @ls_run_log.
 
-
-        " TEST ONLY^ force duplicate-key DB error
-
-            " TEST ONLY
- "              DATA lt_test_log TYPE TABLE OF znw_acq_run_log.
- "               APPEND ls_run_log TO lt_test_log.
- "               INSERT znw_acq_run_log FROM TABLE @lt_test_log.
-
         COMMIT WORK AND WAIT.
 
-"CATCH for RUN log
     CATCH cx_sy_open_sql_db INTO DATA(lx_log_error).
 
  " Roll back only the logging transaction.
  " Business data and acquisition state were already committed.
         ROLLBACK WORK.
 
-"ENDTRY for RUN log
     ENDTRY.
-" Debug breakpoint
-i_break = 0.
+" Manual debugging anchor: convenient final breakpoint
+i_debug_anchor = 0.
 
   ENDMETHOD.
 
 
  METHOD reconcile_runs.
 
-"Find threshold
+" Calculate the cutoff time for stale RUNNING records
  DATA(lv_threshold) =
   utclong_add(
     val     = utclong_current( )
-    minutes = -1                       " For test -15, for work -1
+    minutes = - c_stale_timeout_minutes
   ).
 
  DATA lt_running_runs TYPE TABLE OF znw_acq_run_log.
 
  SELECT *
   FROM znw_acq_run_log
-  WHERE status     = 'RUNNING'
+  WHERE status     = @c_status_running
     AND started_at < @lv_threshold
   INTO TABLE @lt_running_runs.
 
-  " Reconcilliation v1
   " Phase 1: classify old RUNNING records
 
   LOOP AT lt_running_runs INTO DATA(ls_run).
@@ -615,43 +581,29 @@ i_break = 0.
     INTO @DATA(ls_state).
 
   IF sy-subrc = 0
-     AND ls_state-status = 'RUNNING'
+     AND ls_state-status = c_status_running
      AND ls_state-active_run_id = ls_run-run_id.
 
 
  " This run is still registered as the active run,
  " but it has exceeded the allowed runtime.
-    ls_run-status = 'STALE'.
+    ls_run-status = c_status_stale.
 
- " Release the source because this run is no longer considered active
-    ls_state-status = 'STALE'.
+ " Mark the source as STALE while preserving the RUN_ID
+" for subsequent retry evaluation.
+    ls_state-status = c_status_stale.
 
 
-" Do not clear ACTIVE_RUN_ID here.
-" It identifies the STALE run awaiting retry.
+" Keep ACTIVE_RUN_ID pointing to the STALE run awaiting retry.
 
       MODIFY znw_acq_run_log FROM @ls_run.
       MODIFY znw_acq_state FROM @ls_state.
 
- "Writing new candidate to RETRY into table
- "rt_retry_candidates - public table with data of retry processes
- "   IF ls_run-retry_count < c_max_retry_count.
- "       APPEND VALUE #(
- "               run_id          = ls_run-run_id
- "               original_run_id = ls_run-original_run_id
- "               source_name     = ls_run-source_name
- "               retry_count     = ls_run-retry_count
- "               ) TO rt_retry_candidates.
-
-
- "   ENDIF.
-
   ELSE.
 
-
-" This run is no longer the active run,
-" but its final status was not recorded reliably.
-    ls_run-status = 'UNKNOWN'.
+" This historical RUNNING row is no longer the authoritative active run,
+" and its final status cannot be determined reliably.
+    ls_run-status = c_status_unknown.
       MODIFY znw_acq_run_log FROM @ls_run.
 
   ENDIF.
@@ -661,21 +613,23 @@ ENDLOOP.
 COMMIT WORK AND WAIT.
 
 " Phase 2: process persisted STALE runs
+" Build retry candidate from persisted STALE state.
+" This makes reconciliation restart-safe across separate executions.
 
 
 SELECT SINGLE *
   FROM znw_acq_state
-  WHERE source_name = 'NORTHWIND_PRODUCTS'
+  WHERE source_name = @c_source_products
   INTO @DATA(ls_retry_state).
 
 IF sy-subrc = 0
-   AND ls_retry_state-status = 'STALE'
+   AND ls_retry_state-status = c_status_stale
    AND ls_retry_state-active_run_id IS NOT INITIAL.
 
 
 SELECT SINGLE *
   FROM znw_acq_run_log
-  WHERE status = 'STALE'
+  WHERE status = @c_status_stale
   AND  run_id = @ls_retry_state-active_run_id
   INTO @DATA(ls_stale_run).
 
@@ -692,7 +646,7 @@ SELECT SINGLE *
 
     ELSE.
 
-      ls_retry_state-status = 'RETRY_LIMIT'.
+      ls_retry_state-status = c_status_retry_limit.
       CLEAR ls_retry_state-active_run_id.
 
       MODIFY znw_acq_state FROM @ls_retry_state.

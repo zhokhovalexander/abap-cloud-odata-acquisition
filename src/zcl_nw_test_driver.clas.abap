@@ -18,14 +18,14 @@ CLASS zcl_nw_test_driver IMPLEMENTATION.
     TRY.
 
 " Full load compare
-        lo_acquisition->full_load_compare(
-        iv_original_run_id = '829C51E967C21FE1ADE7AC0CCA382369'
-        iv_retry_count     = 1
-         ).
+        lo_acquisition->full_load_compare( ).
+"        iv_original_run_id = '829C51E967C21FE1ADE7AC0CCA382369'
+"        iv_retry_count     = 1
+"         ).
 
-        out->write(
-          'Normal full_load_compare completed.'
-        ).
+"        out->write(
+"          'Normal full_load_compare completed.'
+"        ).
 "*****************************************************
 
 " Reconcile runs
