@@ -9,6 +9,22 @@ automatic retries, and prevents concurrent acquisition of the same source.
 
 The project was developed and tested in SAP BTP ABAP Environment / ABAP Cloud.
 
+## Purpose
+
+This repository is an educational and portfolio project demonstrating
+practical ABAP Cloud data-acquisition design.
+
+The project intentionally goes beyond a simple "read OData and insert rows"
+example.
+
+Its main focus is the operational behavior around data acquisition: what
+happens when a run fails, stops halfway, is retried, collides with another
+run, or succeeds while logging later fails.
+
+The project covers OData acquisition, persistence, transaction boundaries,
+run-state management, reconciliation, retries, concurrency protection, and
+failure-oriented testing.
+
 ---
 
 ## Overview
@@ -852,36 +868,3 @@ ZNW_ACQ_RUN_LOG
   Historical acquisition-run log
 ```
 
----
-
-## Purpose
-
-This repository is an educational and portfolio project demonstrating
-practical ABAP Cloud data-acquisition design.
-
-The main topics covered are:
-
-- external REST / OData V4 acquisition;
-- HTTP error handling;
-- JSON deserialization and field mapping;
-- OData paging;
-- persistence of external data;
-- full-snapshot replacement;
-- target-side snapshot comparison;
-- explicit transaction boundaries;
-- project-specific checked exceptions;
-- operational state management;
-- run-history tracking;
-- interrupted-run reconciliation;
-- automatic retry chains;
-- retry limits;
-- run-admission rules;
-- database-level concurrency protection;
-- failure-oriented and negative testing.
-
-The project intentionally goes beyond a simple "read OData and insert rows"
-example.
-
-Its main focus is the operational behavior around data acquisition: what
-happens when a run fails, stops halfway, is retried, collides with another
-run, or succeeds while logging later fails.
