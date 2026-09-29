@@ -592,6 +592,9 @@ This avoids reporting states such as `STALE` or `RETRY_LIMIT` as
 
 ## Failure and negative testing
 
+For detailed test procedures, preconditions, and verified results, see
+[`docs/testing.md`](docs/testing.md).
+
 The acquisition flow was tested with controlled failure, recovery, admission,
 transaction, and concurrency scenarios.
 
