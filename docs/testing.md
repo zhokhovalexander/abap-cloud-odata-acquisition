@@ -692,3 +692,134 @@ prevents two concurrent first runs from acquiring the same `SOURCE_NAME`.
 
 The test used two real concurrent LUWs rather than manually simulating the
 final table state.
+
+
+---
+
+## HTTP and communication failure tests
+
+### HTTP 404
+
+A deliberately invalid OData endpoint was used to force an HTTP 404 response.
+
+Verified behavior:
+
+```text
+ZCX_NW_HTTP_ERROR
+STATUS_CODE     = 404
+STATE           = FAILED
+RUN_LOG         = FAILED
+ACTIVE_RUN_ID   cleared
+LAST_SUCCESS_AT unchanged
+
+The exception was propagated through the HTTP client, OData client, acquisition
+layer, and runner without an uncontrolled runtime error.
+Transport-level connection failure
+A non-resolvable host was used to simulate a communication failure before any
+HTTP response was available.
+Expected behavior:
+ZCX_NW_HTTP_ERROR
+STATUS_CODE = 0
+REASON      = <technical communication error>
+
+The run was closed as FAILED and the original communication error was
+propagated in controlled form.
+Reconciliation and retry tests
+Interrupted active run
+A run was intentionally stopped after the initial start transaction had been
+committed but before acquisition completed.
+After the configured stale timeout, RECONCILE_RUNS was executed.
+Verified transition:
+RUN_LOG
+  RUNNING -> STALE
+
+STATE
+  RUNNING -> STALE
+  ACTIVE_RUN_ID preserved
+
+LAST_SUCCESS_AT remained unchanged.
+Historical non-authoritative RUNNING
+A historical RUNNING row that was no longer referenced by the current
+ACTIVE_RUN_ID was processed by reconciliation.
+Verified result:
+RUN_LOG -> UNKNOWN
+
+This confirms the distinction between historical run state and current
+authoritative source state.
+Retry candidate recovery
+A persisted STALE state was processed in a later reconciliation execution.
+The retry candidate was reconstructed from:
+STATE.STATUS        = STALE
+STATE.ACTIVE_RUN_ID = <stale RUN_ID>
+
+This verifies that retry recovery does not depend on in-memory state from the
+previous execution.
+Retry-limit sequence
+The automatic retry chain was exercised until the configured maximum retry
+count was reached.
+Representative sequence:
+Run A  retry_count = 0
+Run B  retry_count = 1
+Run C  retry_count = 2
+Run D  retry_count = 3
+
+After reconciliation of the final stale retry:
+STATE.STATUS        = RETRY_LIMIT
+STATE.ACTIVE_RUN_ID = initial
+retry candidates    = 0
+
+No additional automatic run was created.
+Regression tests after refactoring
+After cleanup of comments, extraction of literals into constants, and
+introduction of c_stale_timeout_minutes, a short regression suite was
+executed.
+Successful normal acquisition
+Precondition:
+STATE.STATUS = DONE
+
+Verified result:
+STATE.STATUS        = DONE
+ACTIVE_RUN_ID       = initial
+RUN_LOG             = DONE
+ROW_COUNT           = 77
+NEW_COUNT           = 0
+CHANGED_COUNT       = 0
+DELETED_COUNT       = 0
+
+for an unchanged source snapshot.
+Stale-timeout regression
+A run was stopped in RUNNING, allowed to exceed the configured timeout, and
+then reconciled.
+Verified result:
+RUNNING -> STALE
+ACTIVE_RUN_ID preserved
+LAST_SUCCESS_AT preserved
+
+Admission regression
+A normal run was attempted from:
+STATE.STATUS = RETRY_LIMIT
+
+Verified result:
+Run not allowed for NORTHWIND_PRODUCTS.
+Current state: RETRY_LIMIT.
+Requested mode: NORMAL.
+
+No new run-log record was created and the external OData request was not
+executed.
+Testing summary
+The manual test suite verified not only successful acquisition, but also:
+- controlled HTTP and communication failures;
+- database rollback behavior;
+- run-state recovery after interruption;
+- restart-safe reconciliation;
+- automatic retry chains;
+- retry limits;
+- state-machine admission rules;
+- atomic creation of initial run state and run log;
+- database-lock behavior under concurrent first-run execution;
+- preservation of previously committed business data when later logging fails.
+The most important invariant verified by the test suite is:
+For one SOURCE_NAME, at most one acquisition run may own the source at a time.
+
+The tests also verify that failure of observability or logging must not
+invalidate an already committed successful acquisition.
