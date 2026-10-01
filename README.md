@@ -27,6 +27,18 @@ failure-oriented testing.
 
 ---
 
+
+## Documentation
+
+Detailed project documentation:
+
+- [Architecture](docs/architecture.md) — component boundaries, data ownership,
+  acquisition flow, transaction design, reconciliation, retries, concurrency,
+  and exception propagation.
+
+- [Testing](docs/testing.md) — manual acceptance, failure, recovery,
+  run-admission, transaction, retry, regression, and concurrency test scenarios.
+
 ## Overview
 
 The external source is the public Northwind OData V4 service:
