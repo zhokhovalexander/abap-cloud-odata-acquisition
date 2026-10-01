@@ -39,6 +39,146 @@ Detailed project documentation:
 - [Testing](docs/testing.md) — manual acceptance, failure, recovery,
   run-admission, transaction, retry, regression, and concurrency test scenarios.
 
+
+  ---
+
+## How to run
+
+### Prerequisites
+
+The project requires:
+
+- an SAP BTP ABAP Environment / ABAP Cloud system;
+- Eclipse with ABAP Development Tools (ADT);
+- abapGit for ADT;
+- outbound HTTP access from the ABAP system.
+
+The demo source is the public Northwind OData V4 service:
+
+`https://services.odata.org/V4/Northwind/Northwind.svc/`
+
+No credentials or API keys are required for the current demo.
+
+### 1. Import the repository
+
+Clone or import this repository into the target ABAP Cloud system using
+abapGit for ADT.
+
+The project objects are contained in the package:
+
+```text
+ZNW_ODATA_ACQ
+```
+
+After import, activate all repository objects.
+
+### 2. Run the normal acquisition flow
+
+The normal entry point is:
+
+```text
+ZCL_NW_RUN
+```
+
+Run the class as an ABAP Application from ADT.
+
+`ZCL_NW_RUN` performs the normal orchestration flow:
+
+```text
+reconcile previous incomplete runs
+        |
+        v
+execute retry if required
+        |
+        v
+otherwise start a normal acquisition
+```
+
+For a successful normal execution, the runner calls the acquisition logic,
+which reads the Northwind `Products` entity set and persists the resulting
+snapshot.
+
+### 3. Inspect the result
+
+The main persistence tables are:
+
+```text
+ZNW_ACQ_PRODUCT
+  current persisted Products snapshot
+
+ZNW_ACQ_STATE
+  current operational state of the source
+
+ZNW_ACQ_RUN_LOG
+  historical acquisition-run records
+```
+
+After a successful acquisition, the expected operational state is:
+
+```text
+ZNW_ACQ_STATE
+  STATUS        = DONE
+  ACTIVE_RUN_ID = initial
+```
+
+and the latest run-log record should contain:
+
+```text
+STATUS      = DONE
+FINISHED_AT = <timestamp>
+ROW_COUNT   = <source row count>
+```
+
+During project testing, the public Northwind `Products` entity set returned
+77 products. This value should be treated as demo-source data rather than as a
+fixed application constant.
+
+### 4. Run the acquisition again
+
+A subsequent execution reads the complete source snapshot again and compares
+it with the persisted snapshot.
+
+`FULL_LOAD_COMPARE` classifies records as:
+
+```text
+NEW
+CHANGED
+DELETED
+UNCHANGED
+```
+
+Only detected database changes are applied.
+
+For an unchanged source snapshot, the run typically completes with:
+
+```text
+NEW_COUNT     = 0
+CHANGED_COUNT = 0
+DELETED_COUNT = 0
+```
+
+while `ROW_COUNT` reflects the complete source snapshot.
+
+### Test and recovery execution
+
+`ZCL_NW_RUN` should be used for the normal application flow.
+
+The following classes are intended for manual testing and controlled recovery
+scenarios:
+
+```text
+ZCL_NW_TEST_DRIVER
+  direct execution of individual acquisition methods
+
+ZCL_NW_TEST_RUN
+  preparation and modification of persisted test data
+```
+
+They are not required for a normal acquisition.
+
+Detailed test procedures are documented in
+[`docs/testing.md`](docs/testing.md).
+
 ## Overview
 
 The external source is the public Northwind OData V4 service:
